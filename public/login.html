@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in — Ludo by GameGateway.net</title>
+    <link rel="icon" type="image/png" href="/assets/ludogame.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="login-page">
+        <div class="login-container panel">
+            <img class="login-logo" src="/assets/ludogame.png" alt="Ludo by GameGateway.net">
+            <div class="brand-wordmark">Ludo</div>
+            <span class="brand-subtitle">by <a href="https://gamegateway.net" target="_blank" rel="noopener noreferrer">GameGateway.net</a></span>
+
+            <div id="loginAlert" class="alert" role="alert"></div>
+
+            <form id="loginForm">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" placeholder="Enter username" required autocomplete="username">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password">
+                <button type="submit" id="loginSubmit">Sign In</button>
+            </form>
+        </div>
+    </div>
+    <script src="login.js"></script>
+</body>
+</html>

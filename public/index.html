@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — Ludo by GameGateway.net</title>
+    <link rel="icon" type="image/png" href="/assets/ludogame.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="dashboard-layout">
+        <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header-row">
+                <div class="sidebar-brand">
+                    <img src="/assets/ludogame.png" alt="Ludo logo">
+                    <div class="sidebar-brand-text">
+                        <span class="brand-wordmark">Ludo</span>
+                        <span class="brand-subtitle">by GameGateway.net</span>
+                    </div>
+                </div>
+                <button type="button" id="closeSidebarBtn" class="btn-ghost mobile-toggle" aria-label="Close menu">
+                    <i data-lucide="x"></i>
+                </button>
+            </div>
+
+            <nav class="nav-links">
+                <a href="#dashboard" class="nav-link active" data-target="dashboard"><i data-lucide="layout-dashboard"></i> Dashboard</a>
+                <a href="#rooms" class="nav-link" data-target="rooms"><i data-lucide="home"></i> Rooms</a>
+                <a href="#requests" class="nav-link" data-target="requests"><i data-lucide="activity"></i> Requests</a>
+                <a href="#docs" class="nav-link" data-target="docs"><i data-lucide="book-open"></i> API Docs</a>
+                <a href="#account" class="nav-link" data-target="account"><i data-lucide="settings"></i> Account</a>
+                <a href="#users" class="nav-link admin-only" data-target="users"><i data-lucide="users"></i> Users</a>
+                <a href="#" id="logoutBtn" class="nav-link nav-logout"><i data-lucide="log-out"></i> Logout</a>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <header class="header">
+                <div class="header-top">
+                    <button type="button" id="mobileMenuBtn" class="btn-ghost mobile-toggle" aria-label="Open menu">
+                        <i data-lucide="menu"></i>
+                    </button>
+                    <div>
+                        <div class="header-meta">
+                            <h2 id="greeting">Welcome</h2>
+                            <span id="roleChip" class="role-chip"></span>
+                        </div>
+                        <p>Manage your Ludo API usage</p>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dashboard -->
+            <section id="view-dashboard" class="view-section active">
+                <div class="stats-grid">
+                    <div class="stat-card panel accent-blue" id="stat-balance-card">
+                        <div class="stat-card-header">
+                            <span class="label">Available Balance</span>
+                            <span class="stat-icon"><i data-lucide="wallet"></i></span>
+                        </div>
+                        <span class="value" id="stat-balance">—</span>
+                    </div>
+                    <div class="stat-card panel accent-gold">
+                        <div class="stat-card-header">
+                            <span class="label">Cost Per Request</span>
+                            <span class="stat-icon"><i data-lucide="coins"></i></span>
+                        </div>
+                        <span class="value" id="stat-cost">—</span>
+                    </div>
+                    <div class="stat-card panel accent-green">
+                        <div class="stat-card-header">
+                            <span class="label">Total API Requests</span>
+                            <span class="stat-icon"><i data-lucide="zap"></i></span>
+                        </div>
+                        <span class="value" id="stat-reqs">—</span>
+                    </div>
+                    <div class="stat-card panel accent-red">
+                        <div class="stat-card-header">
+                            <span class="label">Total Cost Spent</span>
+                            <span class="stat-icon"><i data-lucide="trending-down"></i></span>
+                        </div>
+                        <span class="value" id="stat-total-cost">—</span>
+                    </div>
+                </div>
+
+                <div class="chart-panel panel">
+                    <h3>Usage Overview (Last 7 Days)</h3>
+                    <canvas id="usageChart" height="80"></canvas>
+                </div>
+            </section>
+
+            <!-- Rooms -->
+            <section id="view-rooms" class="view-section">
+                <div class="page-toolbar">
+                    <h2>Game Rooms</h2>
+                    <div class="toolbar-actions">
+                        <input type="search" id="roomsSearch" class="filter-input" placeholder="Search room ID…">
+                        <select id="roomsFilter" class="filter-select">
+                            <option value="all">All states</option>
+                            <option value="waiting">Waiting</option>
+                            <option value="playing">Playing</option>
+                            <option value="finished">Finished</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                        <button type="button" id="refreshRoomsBtn" class="btn-secondary btn-sm">Refresh</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Room ID</th>
+                                <th>State</th>
+                                <th>Type</th>
+                                <th>Players</th>
+                                <th class="admin-col">Owner</th>
+                                <th>Created At</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="roomsTableBody">
+                            <tr><td colspan="7" class="table-loading">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Requests -->
+            <section id="view-requests" class="view-section">
+                <div class="page-toolbar">
+                    <h2>API Requests Log</h2>
+                    <div class="toolbar-actions">
+                        <input type="search" id="reqsSearch" class="filter-input" placeholder="Search endpoint…">
+                        <select id="reqsMethodFilter" class="filter-select">
+                            <option value="all">All methods</option>
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                        </select>
+                        <button type="button" id="refreshReqsBtn" class="btn-secondary btn-sm">Refresh</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Endpoint</th>
+                                <th>Method</th>
+                                <th>Cost</th>
+                                <th class="admin-col">Owner</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reqsTableBody">
+                            <tr><td colspan="6" class="table-loading">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Docs -->
+            <section id="view-docs" class="view-section">
+                <div class="page-toolbar">
+                    <h2>API Documentation</h2>
+                </div>
+                <div class="docs-layout">
+                    <nav class="docs-nav panel">
+                        <a href="#docs-auth">Authentication</a>
+                        <a href="#docs-create">Create Room</a>
+                        <a href="#docs-ws">WebSocket Join</a>
+                        <a href="#docs-flutter">Flutter Client</a>
+                    </nav>
+                    <div class="docs-content panel">
+                        <h3 id="docs-auth">Authentication</h3>
+                        <p>Game Server API calls use your API key in the <code class="inline">x-api-token</code> header. Dashboard requests use a JWT. Manage and copy your key from <strong>Account</strong>.</p>
+
+                        <h3 id="docs-create">1. Create a Game Room</h3>
+                        <p>Creates a Ludo game room and deducts the request cost from your balance.</p>
+                        <div class="code-block" data-copyable>
+<button type="button" class="btn-secondary btn-sm copy-code-btn">Copy</button>
+<span class="code-label">Endpoint:</span> POST /api/create-room
+<span class="code-label">Headers:</span>
+  Content-Type: application/json
+  x-api-token: &lt;Your_API_Key&gt;
+<span class="code-label">Body:</span>
+{
+  "call_back": "https://your-webhook-url.com",
+  "entry_fee": 100,
+  "winning_prize": 500,
+  "waiting_time": 60,
+  "room_type": "public",
+  "uid": "unique-id-123",
+  "playerName": "Player1",
+  "avater_url": "https://example.com/avatar.jpg"
+}</div>
+                        <p><strong style="color: var(--gold);">Slot reservation:</strong> If <code class="inline">uid</code> is passed, a slot is reserved for that player. Public matchmaking pairs into matching waiting rooms when possible.</p>
+
+                        <h3 id="docs-ws">2. Join a Game Room (WebSocket)</h3>
+                        <p>Connect via Socket.IO and emit <code class="inline">joinRoom</code>. Joining does not require an API token.</p>
+                        <div class="code-block" data-copyable>
+<button type="button" class="btn-secondary btn-sm copy-code-btn">Copy</button>
+<span class="code-label">Connection:</span> ws://your-server-domain:3000
+<span class="code-label">Event:</span> joinRoom
+<span class="code-label">Payload:</span>
+{
+  "roomId": "123456",
+  "uid": "unique-id-123"
+}</div>
+
+                        <h3 id="docs-flutter">3. Flutter Client Integration</h3>
+                        <p>Launch the Ludo app from Flutter with <code class="inline">LudoKing.joinMatch()</code>.</p>
+                        <div class="code-block" data-copyable>
+<button type="button" class="btn-secondary btn-sm copy-code-btn">Copy</button>
+import 'package:ludo_king/ludo_king.dart';
+
+await LudoKing.joinMatch(
+  uid: "unique-id-123",
+  roomId: "123456",
+  baseUrl: "http://your-server-domain:3000",
+);</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Account -->
+            <section id="view-account" class="view-section">
+                <div class="page-toolbar">
+                    <h2>Account Settings</h2>
+                </div>
+                <div class="account-card panel">
+                    <h3>Profile</h3>
+                    <div class="detail-grid" id="accountProfile">
+                        <div class="detail-row">
+                            <span class="detail-label">Username</span>
+                            <span class="detail-value" id="accountUsername">—</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Role</span>
+                            <span class="detail-value" id="accountRole">—</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Balance</span>
+                            <span class="detail-value" id="accountBalance">—</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Cost / request</span>
+                            <span class="detail-value" id="accountCost">—</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="account-card panel">
+                    <h3>Change Password</h3>
+                    <form id="changePasswordForm">
+                        <label for="currentPassword">Current password</label>
+                        <input type="password" id="currentPassword" required autocomplete="current-password">
+                        <label for="newPasswordSelf">New password</label>
+                        <input type="password" id="newPasswordSelf" required minlength="6" autocomplete="new-password">
+                        <button type="submit">Update Password</button>
+                    </form>
+                </div>
+                <div class="account-card panel danger-zone">
+                    <h3>API Key</h3>
+                    <p style="margin-bottom: 1rem;">Shown only here. Regenerating invalidates the current key immediately — update your game clients afterward.</p>
+                    <div class="api-key-bar panel" style="margin-bottom: 1rem;">
+                        <span class="api-key-label">API Key</span>
+                        <span id="apiKeyDisplay" class="api-key-value">••••••••</span>
+                        <button type="button" class="btn-secondary btn-sm" id="toggleKeyBtn">Show</button>
+                        <button type="button" class="btn-secondary btn-sm" id="copyKeyBtn">Copy</button>
+                    </div>
+                    <button type="button" id="regenOwnKeyBtn" class="btn-danger">Regenerate My API Key</button>
+                </div>
+            </section>
+
+            <!-- Users (admin) -->
+            <section id="view-users" class="view-section admin-only">
+                <div class="page-toolbar">
+                    <h2>Manage Users</h2>
+                    <div class="toolbar-actions">
+                        <input type="search" id="usersSearch" class="filter-input" placeholder="Search username…">
+                        <button type="button" id="addUserBtn">Add New User</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Role</th>
+                                <th>Status</th>
+                                <th>Balance</th>
+                                <th>Cost/Req</th>
+                                <th>API Key</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                            <tr><td colspan="8" class="table-loading">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+    <div id="drawerOverlay" class="drawer-overlay"></div>
+    <aside id="roomDrawer" class="drawer" aria-hidden="true">
+        <div class="drawer-header">
+            <h3 id="drawerTitle">Room details</h3>
+            <button type="button" class="btn-ghost" id="closeDrawerBtn" aria-label="Close"><i data-lucide="x"></i></button>
+        </div>
+        <div class="drawer-body" id="drawerBody">
+            <p class="table-loading">Select a room…</p>
+        </div>
+        <div class="drawer-actions" id="drawerActions"></div>
+    </aside>
+
+    <!-- Add User Modal -->
+    <div id="addUserModal" class="modal-overlay">
+        <div class="modal">
+            <h3>Add New User</h3>
+            <form id="addUserForm">
+                <label for="newUsername">Username</label>
+                <input type="text" id="newUsername" required autocomplete="off">
+                <label for="newPasswordCreate">Password</label>
+                <input type="password" id="newPasswordCreate" required autocomplete="new-password">
+                <label for="newBalance">Initial Balance</label>
+                <input type="number" id="newBalance" value="100" min="0" required>
+                <label for="newCost">Cost Per Request</label>
+                <input type="number" id="newCost" value="1" min="0" required>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary closeModal">Cancel</button>
+                    <button type="submit">Create User</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit User Modal -->
+    <div id="editUserModal" class="modal-overlay">
+        <div class="modal">
+            <h3>Edit User Billing</h3>
+            <form id="editUserForm">
+                <input type="hidden" id="editUserId">
+                <label for="editBalance">Balance</label>
+                <input type="number" id="editBalance" min="0" required>
+                <label for="editCost">Cost Per Request</label>
+                <input type="number" id="editCost" min="0" required>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary closeModal">Cancel</button>
+                    <button type="submit">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Top-up Modal -->
+    <div id="topUpModal" class="modal-overlay">
+        <div class="modal">
+            <h3>Top Up Balance</h3>
+            <form id="topUpForm">
+                <input type="hidden" id="topUpUserId">
+                <p style="margin-bottom: 1rem;">User: <strong id="topUpUsername"></strong></p>
+                <label for="topUpAmount">Amount (negative to deduct)</label>
+                <input type="number" id="topUpAmount" value="100" required>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary closeModal">Cancel</button>
+                    <button type="submit">Apply</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Reset Password Modal -->
+    <div id="resetPasswordModal" class="modal-overlay">
+        <div class="modal">
+            <h3>Reset Password</h3>
+            <form id="resetPasswordForm">
+                <input type="hidden" id="resetPasswordUserId">
+                <p style="margin-bottom: 1rem;">User: <strong id="resetPasswordUsername"></strong></p>
+                <label for="resetNewPassword">New password</label>
+                <input type="password" id="resetNewPassword" required minlength="6" autocomplete="new-password">
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary closeModal">Cancel</button>
+                    <button type="submit">Reset Password</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+      lucide.createIcons();
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
