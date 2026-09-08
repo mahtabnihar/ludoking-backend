@@ -27,7 +27,14 @@ const io = new Server(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  // ── FAST DISCONNECT DETECTION ───────────────────────────────────────────────
+  // Default Socket.io timeout is 25 s ping interval + 20 s timeout = up to 45 s
+  // before a dead connection is detected. Reducing these values means the server
+  // fires the 'disconnect' event (and shows the opponent the alert) within ~5 s.
+  pingInterval: 5000,   // send a heartbeat every 5 seconds
+  pingTimeout:  4000,   // declare the socket dead if no pong in 4 seconds
+  // ────────────────────────────────────────────────────────────────────────────
 });
 
 const PORT = process.env.PORT || 3000;
@@ -1320,9 +1327,9 @@ io.on('connection', (socket) => {
   });
 
   // Sync piece movement
-  socket.on('movePiece', ({ roomId, color, pieceIndex, steps }) => {
-    console.log(`Room ${roomId}: ${color} moved piece ${pieceIndex} by ${steps} steps`);
-    socket.to(roomId).emit('pieceMoved', { color, pieceIndex, steps });
+  socket.on('movePiece', ({ roomId, color, pieceIndex, steps, hasExtraChance }) => {
+    console.log(`Room ${roomId}: ${color} moved piece ${pieceIndex} by ${steps} steps (extraChance=${!!hasExtraChance})`);
+    socket.to(roomId).emit('pieceMoved', { color, pieceIndex, steps, hasExtraChance });
 
     const room = rooms.get(roomId);
     if (room && room.state === 'playing') {
@@ -1333,11 +1340,13 @@ io.on('connection', (socket) => {
       // ── RECONNECT STATE FIX ────────────────────────────────────────────────
       // Update server turn state immediately so a player who reconnects
       // does not see a stale "move pending" state for a move already done.
-      //   • steps !== 6  → normal move, no extra chance → switch active player
-      //   • steps === 6  → extra dice chance, same player rolls again
-      // The client will always send a proper switchTurn event to confirm;
-      // this is a fallback so reconnect state is never broken.
-      if (steps !== 6) {
+      //
+      // Three cases where the SAME player keeps their turn:
+      //   • steps === 6        → dice extra chance
+      //   • hasExtraChance     → client explicitly says so (kill / panta bonus)
+      // In all other cases switch to the opponent.
+      const keepTurn = steps === 6 || !!hasExtraChance;
+      if (!keepTurn) {
         room.activeColor = color === 'red' ? 'yellow' : 'red';
       }
       room.turnState = 'roll';
