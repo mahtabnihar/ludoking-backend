@@ -384,6 +384,15 @@ function startRoomTimer(roomId) {
       return;
     }
 
+    // ── DISCONNECT GUARD ─────────────────────────────────────────────────────
+    // If any player is not connected, freeze the timer completely.
+    // Auto-roll and auto-move must NEVER fire against an absent player.
+    const bothConnected = r.players.length >= 2 && r.players.every(p => p.connected);
+    if (!bothConnected) {
+      return; // pause – will resume ticking once reconnected
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     r.secondsRemaining--;
 
     io.to(roomId).emit('timerTick', {
@@ -436,7 +445,7 @@ function startRoomTimer(roomId) {
         return;
       }
 
-      // Auto Action
+      // Auto Action – safe to execute: both players are confirmed connected above
       if (r.turnState === 'roll') {
         const autoValue = Math.floor(Math.random() * 6) + 1;
         console.log(`Room ${roomId}: Auto rolling dice for ${r.activeColor} with value ${autoValue}`);
@@ -454,14 +463,18 @@ function startRoomTimer(roomId) {
       } else {
         console.log(`Room ${roomId}: Auto moving piece for ${r.activeColor}`);
         
+        const autoMoveColor = r.activeColor;
+        const autoMoveSteps = r.rolledValue;
+
         io.to(roomId).emit('autoMovePiece', {
-          color: r.activeColor,
-          steps: r.rolledValue
+          color: autoMoveColor,
+          steps: autoMoveSteps
         });
         
         // Auto-switch turn after auto-move emission
         r.activeColor = r.activeColor === 'red' ? 'yellow' : 'red';
         r.turnState = 'roll';
+        r.rolledValue = -1;
         
         saveRoomToDb(roomId);
         startRoomTimer(roomId);
@@ -1146,10 +1159,17 @@ io.on('connection', (socket) => {
           secondsRemaining: room.secondsRemaining
         });
 
-        // Resume countdown timer if both players are back
+        // Resume countdown timer if both players are back.
+        // Delay by 2 seconds so the reconnecting client has time to fully
+        // restore its board state before the first timer tick arrives.
         if (room.players.every(p => p.connected)) {
-          console.log(`Both players active in room ${roomId}. Resuming timer...`);
-          startRoomTimer(roomId);
+          console.log(`Both players active in room ${roomId}. Resuming timer in 2 seconds...`);
+          setTimeout(() => {
+            const r = rooms.get(roomId);
+            if (r && r.state === 'playing' && r.players.every(p => p.connected)) {
+              startRoomTimer(roomId);
+            }
+          }, 2000);
         }
         return;
       }
@@ -1310,6 +1330,19 @@ io.on('connection', (socket) => {
         clearInterval(room.timer);
         room.timer = null;
       }
+      // ── RECONNECT STATE FIX ────────────────────────────────────────────────
+      // Update server turn state immediately so a player who reconnects
+      // does not see a stale "move pending" state for a move already done.
+      //   • steps !== 6  → normal move, no extra chance → switch active player
+      //   • steps === 6  → extra dice chance, same player rolls again
+      // The client will always send a proper switchTurn event to confirm;
+      // this is a fallback so reconnect state is never broken.
+      if (steps !== 6) {
+        room.activeColor = color === 'red' ? 'yellow' : 'red';
+      }
+      room.turnState = 'roll';
+      room.rolledValue = -1;
+      // ─────────────────────────────────────────────────────────────────────
       saveRoomToDb(roomId);
     }
   });
