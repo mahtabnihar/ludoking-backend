@@ -1327,9 +1327,9 @@ io.on('connection', (socket) => {
   });
 
   // Sync piece movement
-  socket.on('movePiece', ({ roomId, color, pieceIndex, steps, hasExtraChance }) => {
-    console.log(`Room ${roomId}: ${color} moved piece ${pieceIndex} by ${steps} steps (extraChance=${!!hasExtraChance})`);
-    socket.to(roomId).emit('pieceMoved', { color, pieceIndex, steps, hasExtraChance });
+  socket.on('movePiece', ({ roomId, color, pieceIndex, steps }) => {
+    console.log(`Room ${roomId}: ${color} moved piece ${pieceIndex} by ${steps} steps`);
+    socket.to(roomId).emit('pieceMoved', { color, pieceIndex, steps });
 
     const room = rooms.get(roomId);
     if (room && room.state === 'playing') {
@@ -1337,22 +1337,24 @@ io.on('connection', (socket) => {
         clearInterval(room.timer);
         room.timer = null;
       }
-      // ── RECONNECT STATE FIX ────────────────────────────────────────────────
-      // Update server turn state immediately so a player who reconnects
-      // does not see a stale "move pending" state for a move already done.
-      //
-      // Three cases where the SAME player keeps their turn:
-      //   • steps === 6        → dice extra chance
-      //   • hasExtraChance     → client explicitly says so (kill / panta bonus)
-      // In all other cases switch to the opponent.
-      const keepTurn = steps === 6 || !!hasExtraChance;
-      if (!keepTurn) {
-        room.activeColor = color === 'red' ? 'yellow' : 'red';
-      }
+      // Piece move has taken place; reset rolled value.
+      // activeColor is not altered here: authoritative updates are driven by
+      // 'switchTurn' (turn passed) or 'extraChance' (dice=6, kill, or home arrival).
+      room.rolledValue = -1;
+      saveRoomToDb(roomId);
+    }
+  });
+
+  // Handle extra chance (dice 6, kill opponent piece, or home arrival)
+  socket.on('extraChance', ({ roomId, color }) => {
+    console.log(`Room ${roomId}: ${color} earned extra chance`);
+    const room = rooms.get(roomId);
+    if (room && room.state === 'playing') {
+      room.activeColor = color;
       room.turnState = 'roll';
       room.rolledValue = -1;
-      // ─────────────────────────────────────────────────────────────────────
       saveRoomToDb(roomId);
+      startRoomTimer(roomId);
     }
   });
 
@@ -1365,6 +1367,7 @@ io.on('connection', (socket) => {
     if (room && room.state === 'playing') {
       room.activeColor = nextColor;
       room.turnState = 'roll';
+      room.rolledValue = -1;
       saveRoomToDb(roomId);
       startRoomTimer(roomId);
     }
