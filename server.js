@@ -428,12 +428,19 @@ function startRoomTimer(roomId) {
         const winnerName = winnerPlayer ? winnerPlayer.name : 'Unknown';
         const winnerUid = winnerPlayer ? winnerPlayer.uid : '';
 
+        const loserColor = r.activeColor;
+        const loserPlayer = r.players.find(p => p.color === loserColor);
+        const loserName = loserPlayer ? loserPlayer.name : 'Opponent';
+        const loserUid = loserPlayer ? loserPlayer.uid : '';
+
         io.to(roomId).emit('gameOver', {
           reason: 'lives_ended',
-          loserColor: r.activeColor,
+          loserColor: loserColor,
           winnerColor: winnerColor,
           winnerName: winnerName,
-          winnerUid: winnerUid
+          winnerUid: winnerUid,
+          loserName: loserName,
+          loserUid: loserUid
         });
 
         // Save state to DB
@@ -485,6 +492,7 @@ function startRoomTimer(roomId) {
         
         saveRoomToDb(roomId);
         startRoomTimer(roomId);
+        io.to(roomId).emit('turnSwitched', { nextColor: r.activeColor });
       }
     }
   }, 1000);
@@ -1103,6 +1111,14 @@ io.on('connection', (socket) => {
           waiting_time: row.waiting_time || 60,
           room_type: row.room_type || 'private'
         };
+        room.colorMap = {};
+        if (Array.isArray(room.players)) {
+          room.players.forEach(p => {
+            if (p.uid && p.color) {
+              room.colorMap[p.uid] = p.color;
+            }
+          });
+        }
         rooms.set(roomId, room);
       }
 
@@ -1127,6 +1143,8 @@ io.on('connection', (socket) => {
         
         existingPlayer.id = socket.id;
         existingPlayer.connected = true;
+        room.colorMap = room.colorMap || {};
+        room.colorMap[existingPlayer.uid] = existingPlayer.color;
         
         socket.join(roomId);
         socket.emit('colorAssigned', {
@@ -1285,6 +1303,12 @@ io.on('connection', (socket) => {
         room.activeColor = 'red';
         room.turnState = 'roll';
         room.secondsRemaining = 10;
+
+        // Build uid→color map for authoritative turn validation
+        room.colorMap = {};
+        connectedPlayers.forEach(p => {
+          room.colorMap[p.uid] = p.color;
+        });
         
         saveRoomToDb(roomId);
 
@@ -1309,12 +1333,22 @@ io.on('connection', (socket) => {
   });
 
   // Sync dice rolling (server-authoritative dice generation)
-  socket.on('rollDice', ({ roomId, rollerColor }) => {
+  socket.on('rollDice', ({ roomId, rollerColor, uid }) => {
     const room = rooms.get(roomId);
     if (room && room.state === 'playing') {
+      // ── UID-BASED TURN GUARD ─────────────────────────────────────────────────
+      // Accept the roll only from the player whose color matches activeColor.
+      // We use uid (sent by client) to look up their authoritative color.
+      if (room.colorMap && uid) {
+        const emitterColor = room.colorMap[uid];
+        if (emitterColor !== room.activeColor) {
+          console.warn(`Room ${roomId}: Ignoring rollDice from uid=${uid} (color=${emitterColor}), activeColor=${room.activeColor}`);
+          return;
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
       const autoValue = Math.floor(Math.random() * 6) + 1;
-      //const autoValue = 2;
-      const activeColor = room.activeColor || rollerColor;
+      const activeColor = room.activeColor;
       console.log(`Room ${roomId}: ${activeColor} rolled ${autoValue} (server generated)`);
 
       room.turnState = 'move';
@@ -1327,49 +1361,108 @@ io.on('connection', (socket) => {
   });
 
   // Sync piece movement
-  socket.on('movePiece', ({ roomId, color, pieceIndex, steps }) => {
-    console.log(`Room ${roomId}: ${color} moved piece ${pieceIndex} by ${steps} steps`);
-    socket.to(roomId).emit('pieceMoved', { color, pieceIndex, steps });
-
+  socket.on('movePiece', ({ roomId, color, pieceIndex, steps, uid }) => {
     const room = rooms.get(roomId);
     if (room && room.state === 'playing') {
+      // ── UID-BASED TURN GUARD ─────────────────────────────────────────────────
+      if (room.colorMap && uid) {
+        const emitterColor = room.colorMap[uid];
+        if (emitterColor !== room.activeColor) {
+          console.warn(`Room ${roomId}: Ignoring movePiece from uid=${uid} (color=${emitterColor}), activeColor=${room.activeColor}`);
+          return;
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+      // Use the server's authoritative activeColor instead of the client's `color`
+      const authorColor = room.activeColor;
+      console.log(`Room ${roomId}: ${authorColor} moved piece ${pieceIndex} by ${steps} steps`);
+      socket.to(roomId).emit('pieceMoved', { color: authorColor, pieceIndex, steps });
+
       if (room.timer) {
         clearInterval(room.timer);
         room.timer = null;
       }
-      // Piece move has taken place; reset rolled value.
-      // activeColor is not altered here: authoritative updates are driven by
-      // 'switchTurn' (turn passed) or 'extraChance' (dice=6, kill, or home arrival).
       room.rolledValue = -1;
       saveRoomToDb(roomId);
+
+      // Safety grace timer: if client does not send switchTurn or extraChance within 6 seconds,
+      // the server automatically switches turn to the opponent to prevent room freezing.
+      if (room.moveGraceTimer) {
+        clearTimeout(room.moveGraceTimer);
+      }
+      room.moveGraceTimer = setTimeout(() => {
+        const r = rooms.get(roomId);
+        if (r && r.state === 'playing' && !r.timer) {
+          console.log(`Room ${roomId}: Safety timeout after movePiece - auto-switching turn from ${r.activeColor}`);
+          r.activeColor = r.activeColor === 'red' ? 'yellow' : 'red';
+          r.turnState = 'roll';
+          r.rolledValue = -1;
+          saveRoomToDb(roomId);
+          startRoomTimer(roomId);
+          io.to(roomId).emit('turnSwitched', { nextColor: r.activeColor });
+        }
+      }, 6000);
     }
   });
 
   // Handle extra chance (dice 6, kill opponent piece, or home arrival)
-  socket.on('extraChance', ({ roomId, color }) => {
-    console.log(`Room ${roomId}: ${color} earned extra chance`);
+  socket.on('extraChance', ({ roomId, color, uid }) => {
     const room = rooms.get(roomId);
     if (room && room.state === 'playing') {
-      room.activeColor = color;
+      if (room.moveGraceTimer) {
+        clearTimeout(room.moveGraceTimer);
+        room.moveGraceTimer = null;
+      }
+      // ── UID-BASED TURN GUARD ─────────────────────────────────────────────────
+      if (room.colorMap && uid) {
+        const emitterColor = room.colorMap[uid];
+        if (emitterColor !== room.activeColor) {
+          console.warn(`Room ${roomId}: Ignoring extraChance from uid=${uid} (color=${emitterColor}), activeColor=${room.activeColor}`);
+          return;
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+      const authorColor = room.activeColor; // extra chance stays with same player
+      console.log(`Room ${roomId}: ${authorColor} earned extra chance`);
       room.turnState = 'roll';
       room.rolledValue = -1;
       saveRoomToDb(roomId);
       startRoomTimer(roomId);
+      io.to(roomId).emit('extraChanceGranted', { activeColor: authorColor });
     }
   });
 
   // Sync turn switching
-  socket.on('switchTurn', ({ roomId, nextColor }) => {
-    console.log(`Room ${roomId}: Turn switched to ${nextColor}`);
-    socket.to(roomId).emit('turnSwitched', { nextColor });
-
+  socket.on('switchTurn', ({ roomId, nextColor, uid }) => {
     const room = rooms.get(roomId);
     if (room && room.state === 'playing') {
+      if (room.moveGraceTimer) {
+        clearTimeout(room.moveGraceTimer);
+        room.moveGraceTimer = null;
+      }
+      // ── UID-BASED TURN GUARD ─────────────────────────────────────────────────
+      // The player emitting switchTurn must be the currently active player,
+      // and nextColor must be the OPPONENT's color (not their own).
+      if (room.colorMap && uid) {
+        const emitterColor = room.colorMap[uid];
+        const expectedNextColor = emitterColor === 'red' ? 'yellow' : 'red';
+        if (emitterColor !== room.activeColor) {
+          console.warn(`Room ${roomId}: Ignoring switchTurn from uid=${uid} (color=${emitterColor}), activeColor=${room.activeColor}`);
+          return;
+        }
+        if (nextColor !== expectedNextColor) {
+          console.warn(`Room ${roomId}: Ignoring bad switchTurn nextColor=${nextColor} from ${emitterColor} — forcing ${expectedNextColor}`);
+          nextColor = expectedNextColor; // correct it server-side
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────────
+      console.log(`Room ${roomId}: Turn switched to ${nextColor}`);
       room.activeColor = nextColor;
       room.turnState = 'roll';
       room.rolledValue = -1;
       saveRoomToDb(roomId);
       startRoomTimer(roomId);
+      io.to(roomId).emit('turnSwitched', { nextColor });
     }
   });
 
@@ -1395,12 +1488,19 @@ io.on('connection', (socket) => {
 
       saveRoomToDb(roomId);
 
+      const loserColor = winnerColor === 'red' ? 'yellow' : 'red';
+      const loserPlayer = room.players.find(p => p.color === loserColor);
+      const loserName = loserPlayer ? loserPlayer.name : 'Opponent';
+      const loserUid = loserPlayer ? loserPlayer.uid : '';
+
       io.to(roomId).emit('gameOver', {
         reason: 'game_won',
         winnerColor: winnerColor,
-        loserColor: winnerColor === 'red' ? 'yellow' : 'red',
+        loserColor: loserColor,
         winnerName: winnerName,
-        winnerUid: winnerUid
+        winnerUid: winnerUid,
+        loserName: loserName,
+        loserUid: loserUid
       });
 
       if (room.callbackUrl) {
@@ -1470,7 +1570,9 @@ io.on('connection', (socket) => {
                 loserColor: leavingPlayer.color,
                 winnerColor: settle.winnerColor,
                 winnerName: settle.winnerName,
-                winnerUid: settle.winnerUid
+                winnerUid: settle.winnerUid,
+                loserName: pCurrent ? pCurrent.name : 'Opponent',
+                loserUid: pCurrent ? pCurrent.uid : ''
               });
 
               saveRoomToDb(roomId);
@@ -1526,7 +1628,9 @@ io.on('connection', (socket) => {
                   loserColor: player.color,
                   winnerColor: settle.winnerColor,
                   winnerName: settle.winnerName,
-                  winnerUid: settle.winnerUid
+                  winnerUid: settle.winnerUid,
+                  loserName: pCurrent ? pCurrent.name : 'Opponent',
+                  loserUid: pCurrent ? pCurrent.uid : ''
                 });
 
                 saveRoomToDb(roomId);
